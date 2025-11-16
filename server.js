@@ -62,7 +62,8 @@ app.post("/analyze-scam", async (req, res) => {
 // ---------------------------------------------------
 app.post("/extract-code", async (req, res) => {
   try {
-    const { input } = req.body;
+    // FIXED HERE 👇
+    const { input_text: input } = req.body;
 
     if (!input) {
       return res.status(400).json({ success: false, error: "No input provided" });
