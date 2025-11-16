@@ -18,7 +18,9 @@ const supabase = createClient(
   process.env.MY_SUPABASE_SERVICE_ROLE_KEY
 );
 
-// ---------------- API ROUTE ----------------
+// ---------------------------------------------------
+// 🚨 SCAM ANALYZER ROUTE
+// ---------------------------------------------------
 app.post("/analyze-scam", async (req, res) => {
   try {
     const { message, user_id, ip_address } = req.body;
@@ -55,7 +57,55 @@ app.post("/analyze-scam", async (req, res) => {
   }
 });
 
-// ---------------- SERVER LISTEN ----------------
+// ---------------------------------------------------
+// 🧩 TEXT → CODE EXTRACTOR ROUTE
+// ---------------------------------------------------
+app.post("/extract-code", async (req, res) => {
+  try {
+    const { input } = req.body;
+
+    if (!input) {
+      return res.status(400).json({ success: false, error: "No input provided" });
+    }
+
+    const ai = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: `
+You are a strict CODE extractor.
+RULES:
+- Extract ONLY code that already exists in the given text.
+- Do NOT guess or create new code.
+- Do NOT modify anything.
+- Keep formatting exactly same.
+- If no code exists, reply: "No code found."
+`
+        },
+        {
+          role: "user",
+          content: input
+        }
+      ]
+    });
+
+    const extracted = ai.choices[0].message.content || "No code found";
+
+    res.json({
+      success: true,
+      extracted_code: extracted
+    });
+
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// ---------------------------------------------------
+// SERVER LISTEN
+// ---------------------------------------------------
 app.listen(3000, () =>
   console.log("Backend running on port 3000")
 );
