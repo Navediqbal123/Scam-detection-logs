@@ -7,17 +7,62 @@ import { createClient } from "@supabase/supabase-js";
 dotenv.config();
 
 const app = express();
-app.use(cors());
+
+// ---------------------------------------------------
+// 🔥 FULL CORS FIX (Hoppscotch + Frontend + Mobile)
+// ---------------------------------------------------
+app.use(
+  cors({
+    origin: "*",
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
 app.use(express.json());
 
+// ---------------------------------------------------
 // OPENAI CLIENT
-const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
+// ---------------------------------------------------
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
+// ---------------------------------------------------
 // SUPABASE CLIENT
+// ---------------------------------------------------
 const supabase = createClient(
   process.env.MY_SUPABASE_URL,
   process.env.MY_SUPABASE_SERVICE_ROLE_KEY
 );
+
+// ---------------------------------------------------
+// 🛠 AUTO CREATE TABLES IF NOT EXISTS
+// ---------------------------------------------------
+async function autoCreateTables() {
+  await supabase.rpc("exec", {
+    sql: `
+    CREATE TABLE IF NOT EXISTS scam_detection_logs (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT,
+      message TEXT,
+      scan_result TEXT,
+      ip_address TEXT,
+      is_flagged BOOLEAN DEFAULT false,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+
+    CREATE TABLE IF NOT EXISTS chat_history (
+      id BIGSERIAL PRIMARY KEY,
+      user_id TEXT,
+      role TEXT,
+      message TEXT,
+      created_at TIMESTAMP DEFAULT NOW()
+    );
+  `,
+  }).catch(() => {});
+}
+autoCreateTables();
 
 // ---------------------------------------------------
 // 🚨 SCAM ANALYZER ROUTE
@@ -38,9 +83,9 @@ app.post("/analyze-scam", async (req, res) => {
       messages: [
         {
           role: "user",
-          content: `Analyze this message for scam risk: ${message}`
-        }
-      ]
+          content: `Analyze this message for scam risk: ${message}`,
+        },
+      ],
     });
 
     const resultText = ai.choices[0].message.content || "No result";
@@ -50,18 +95,15 @@ app.post("/analyze-scam", async (req, res) => {
       message,
       scan_result: resultText,
       ip_address,
-      is_flagged: true
+      is_flagged: true,
     });
 
     if (error) {
-      console.log("Supabase Insert Error:", error);
       return res.json({ success: false, error: error.message });
     }
 
     res.json({ success: true, result: resultText });
-
   } catch (e) {
-    console.log(e);
     res.status(500).json({ success: false, error: e.message });
   }
 });
@@ -85,31 +127,29 @@ app.post("/extract-code", async (req, res) => {
           content: `
 You are a strict CODE extractor.
 Rules:
-- Extract ONLY code from the text.
-- Do NOT modify formatting.
-- Do NOT invent new code.
-- If no code found, reply exactly: "No code found."
-`
+- Only extract code.
+- No extra text.
+- No new code.
+- If no code found, return exactly: "No code found."
+`,
         },
-        { role: "user", content: input }
-      ]
+        { role: "user", content: input },
+      ],
     });
 
     const extracted = ai.choices[0].message.content || "No code found";
 
     res.json({
       success: true,
-      extracted_code: extracted
+      extracted_code: extracted,
     });
-
   } catch (error) {
-    console.log(error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
 
 // ---------------------------------------------------
-// 💬 CHATBOT MESSAGE SAVE ROUTE
+// 💬 SAVE CHAT
 // ---------------------------------------------------
 app.post("/save-chat", async (req, res) => {
   try {
@@ -118,30 +158,28 @@ app.post("/save-chat", async (req, res) => {
     if (!user_id || !role || !message) {
       return res.status(400).json({
         success: false,
-        error: "Missing fields: user_id, role, message"
+        error: "Missing fields: user_id, role, message",
       });
     }
 
     const { error } = await supabase.from("chat_history").insert({
       user_id,
       role,
-      message
+      message,
     });
 
     if (error) {
-      console.log("Supabase Chat Insert Error:", error);
       return res.json({ success: false, error: error.message });
     }
 
     res.json({ success: true });
-
   } catch (err) {
-    console.log(err);
     res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ---------------------------------------------------
-// SERVER LISTEN
+// SERVER LISTEN — Render Fix (port must be dynamic)
 // ---------------------------------------------------
-app.listen(3000, () => console.log("Backend running on port 3000"));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
