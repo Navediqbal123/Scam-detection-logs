@@ -10,21 +10,22 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// OPENAI CLIENT
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
+// SUPABASE CLIENT
 const supabase = createClient(
   process.env.MY_SUPABASE_URL,
   process.env.MY_SUPABASE_SERVICE_ROLE_KEY
 );
 
 // ---------------------------------------------------
-// 🚨 SCAM ANALYZER ROUTE (Supabase Fix Added)
+// 🚨 SCAM ANALYZER ROUTE
 // ---------------------------------------------------
 app.post("/analyze-scam", async (req, res) => {
   try {
     let { message, user_id, ip_address } = req.body;
 
-    // DEFAULT VALUES TO PREVENT SUPABASE ERROR
     user_id = user_id || "anonymous_user";
     ip_address = ip_address || "0.0.0.0";
 
@@ -32,7 +33,6 @@ app.post("/analyze-scam", async (req, res) => {
       return res.status(400).json({ success: false, error: "Message required" });
     }
 
-    // OPENAI CALL
     const ai = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
@@ -45,7 +45,6 @@ app.post("/analyze-scam", async (req, res) => {
 
     const resultText = ai.choices[0].message.content || "No result";
 
-    // SAVE IN SUPABASE — FIXED 👇
     const { error } = await supabase.from("scam_detection_logs").insert({
       user_id,
       message,
@@ -59,10 +58,7 @@ app.post("/analyze-scam", async (req, res) => {
       return res.json({ success: false, error: error.message });
     }
 
-    res.json({
-      success: true,
-      result: resultText
-    });
+    res.json({ success: true, result: resultText });
 
   } catch (e) {
     console.log(e);
@@ -71,7 +67,7 @@ app.post("/analyze-scam", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// 🧩 TEXT → CODE EXTRACTOR ROUTE
+// 🧩 CODE EXTRACTOR ROUTE
 // ---------------------------------------------------
 app.post("/extract-code", async (req, res) => {
   try {
@@ -88,18 +84,14 @@ app.post("/extract-code", async (req, res) => {
           role: "system",
           content: `
 You are a strict CODE extractor.
-RULES:
-- Extract ONLY code that already exists in the given text.
-- Do NOT guess or create new code.
-- Do NOT modify anything.
-- Keep formatting exactly same.
-- If no code exists, reply: "No code found."
+Rules:
+- Extract ONLY code from the text.
+- Do NOT modify formatting.
+- Do NOT invent new code.
+- If no code found, reply exactly: "No code found."
 `
         },
-        {
-          role: "user",
-          content: input
-        }
+        { role: "user", content: input }
       ]
     });
 
@@ -116,6 +108,40 @@ RULES:
   }
 });
 
-app.listen(3000, () =>
-  console.log("Backend running on port 3000")
-);
+// ---------------------------------------------------
+// 💬 CHATBOT MESSAGE SAVE ROUTE
+// ---------------------------------------------------
+app.post("/save-chat", async (req, res) => {
+  try {
+    let { user_id, role, message } = req.body;
+
+    if (!user_id || !role || !message) {
+      return res.status(400).json({
+        success: false,
+        error: "Missing fields: user_id, role, message"
+      });
+    }
+
+    const { error } = await supabase.from("chat_history").insert({
+      user_id,
+      role,
+      message
+    });
+
+    if (error) {
+      console.log("Supabase Chat Insert Error:", error);
+      return res.json({ success: false, error: error.message });
+    }
+
+    res.json({ success: true });
+
+  } catch (err) {
+    console.log(err);
+    res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------
+// SERVER LISTEN
+// ---------------------------------------------------
+app.listen(3000, () => console.log("Backend running on port 3000"));
