@@ -8,9 +8,6 @@ dotenv.config();
 
 const app = express();
 
-// ---------------------------------------------------
-// 🔥 FULL CORS FIX (Hoppscotch + Frontend + Mobile)
-// ---------------------------------------------------
 app.use(
   cors({
     origin: "*",
@@ -21,58 +18,27 @@ app.use(
 
 app.use(express.json());
 
-// ---------------------------------------------------
-// OPENAI CLIENT
-// ---------------------------------------------------
+// OPENAI
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// ---------------------------------------------------
-// SUPABASE CLIENT
-// ---------------------------------------------------
+// SUPABASE
 const supabase = createClient(
   process.env.MY_SUPABASE_URL,
   process.env.MY_SUPABASE_SERVICE_ROLE_KEY
 );
 
 // ---------------------------------------------------
-// 🛠 AUTO CREATE TABLES IF NOT EXISTS
+// ❌ REMOVE autoCreateTables (THIS WAS CAUSING CRASH)
 // ---------------------------------------------------
-async function autoCreateTables() {
-  await supabase.rpc("exec", {
-    sql: `
-    CREATE TABLE IF NOT EXISTS scam_detection_logs (
-      id BIGSERIAL PRIMARY KEY,
-      user_id TEXT,
-      message TEXT,
-      scan_result TEXT,
-      ip_address TEXT,
-      is_flagged BOOLEAN DEFAULT false,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-
-    CREATE TABLE IF NOT EXISTS chat_history (
-      id BIGSERIAL PRIMARY KEY,
-      user_id TEXT,
-      role TEXT,
-      message TEXT,
-      created_at TIMESTAMP DEFAULT NOW()
-    );
-  `,
-  }).catch(() => {});
-}
-autoCreateTables();
 
 // ---------------------------------------------------
-// 🚨 SCAM ANALYZER ROUTE
+// SCAM ANALYZER
 // ---------------------------------------------------
 app.post("/analyze-scam", async (req, res) => {
   try {
     let { message, user_id, ip_address } = req.body;
-
-    user_id = user_id || "anonymous_user";
-    ip_address = ip_address || "0.0.0.0";
 
     if (!message) {
       return res.status(400).json({ success: false, error: "Message required" });
@@ -88,34 +54,32 @@ app.post("/analyze-scam", async (req, res) => {
       ],
     });
 
-    const resultText = ai.choices[0].message.content || "No result";
+    const result = ai.choices[0].message.content || "No result";
 
-    const { error } = await supabase.from("scam_detection_logs").insert({
-      user_id,
+    await supabase.from("scam_detection_logs").insert({
+      user_id: user_id || "anonymous",
       message,
-      scan_result: resultText,
-      ip_address,
+      scan_result: result,
+      ip_address: ip_address || "0.0.0.0",
       is_flagged: true,
     });
 
-    if (error) {
-      return res.json({ success: false, error: error.message });
-    }
-
-    res.json({ success: true, result: resultText });
-  } catch (e) {
-    res.status(500).json({ success: false, error: e.message });
+    return res.json({ success: true, result });
+  } catch (err) {
+    return res
+      .status(500)
+      .json({ success: false, error: err.message || "Server error" });
   }
 });
 
 // ---------------------------------------------------
-// 🧩 CODE EXTRACTOR ROUTE
+// CODE EXTRACTOR
 // ---------------------------------------------------
 app.post("/extract-code", async (req, res) => {
   try {
-    const { input_text: input } = req.body;
+    const { input_text } = req.body;
 
-    if (!input) {
+    if (!input_text) {
       return res.status(400).json({ success: false, error: "No input provided" });
     }
 
@@ -125,61 +89,53 @@ app.post("/extract-code", async (req, res) => {
         {
           role: "system",
           content: `
-You are a strict CODE extractor.
-Rules:
-- Only extract code.
-- No extra text.
-- No new code.
-- If no code found, return exactly: "No code found."
+Extract ONLY the code.
+If there is no code, return exactly: "No code found."
 `,
         },
-        { role: "user", content: input },
+        { role: "user", content: input_text },
       ],
     });
 
-    const extracted = ai.choices[0].message.content || "No code found";
+    const extracted = ai.choices[0].message.content;
 
-    res.json({
+    return res.json({
       success: true,
       extracted_code: extracted,
     });
-  } catch (error) {
-    res.status(500).json({ success: false, error: error.message });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ---------------------------------------------------
-// 💬 SAVE CHAT
+// SAVE CHAT
 // ---------------------------------------------------
 app.post("/save-chat", async (req, res) => {
   try {
-    let { user_id, role, message } = req.body;
+    const { user_id, role, message } = req.body;
 
     if (!user_id || !role || !message) {
       return res.status(400).json({
         success: false,
-        error: "Missing fields: user_id, role, message",
+        error: "Fields missing",
       });
     }
 
-    const { error } = await supabase.from("chat_history").insert({
+    await supabase.from("chat_history").insert({
       user_id,
       role,
       message,
     });
 
-    if (error) {
-      return res.json({ success: false, error: error.message });
-    }
-
-    res.json({ success: true });
+    return res.json({ success: true });
   } catch (err) {
-    res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ---------------------------------------------------
-// SERVER LISTEN — Render Fix (port must be dynamic)
+// SERVER LISTENER (Render Fix)
 // ---------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
