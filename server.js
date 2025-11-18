@@ -18,23 +18,23 @@ app.use(
 
 app.use(express.json());
 
-// OPENAI
+// ---------------------------------------------------
+// OPENAI CLIENT
+// ---------------------------------------------------
 const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 
-// SUPABASE
+// ---------------------------------------------------
+// SUPABASE CLIENT
+// ---------------------------------------------------
 const supabase = createClient(
   process.env.MY_SUPABASE_URL,
   process.env.MY_SUPABASE_SERVICE_ROLE_KEY
 );
 
 // ---------------------------------------------------
-// ❌ REMOVE autoCreateTables (THIS WAS CAUSING CRASH)
-// ---------------------------------------------------
-
-// ---------------------------------------------------
-// SCAM ANALYZER
+// 1️⃣ SCAM ANALYZER
 // ---------------------------------------------------
 app.post("/analyze-scam", async (req, res) => {
   try {
@@ -47,10 +47,7 @@ app.post("/analyze-scam", async (req, res) => {
     const ai = await openai.chat.completions.create({
       model: "gpt-4o-mini",
       messages: [
-        {
-          role: "user",
-          content: `Analyze this message for scam risk: ${message}`,
-        },
+        { role: "user", content: `Analyze this message for scam risk: ${message}` },
       ],
     });
 
@@ -66,21 +63,43 @@ app.post("/analyze-scam", async (req, res) => {
 
     return res.json({ success: true, result });
   } catch (err) {
-    return res
-      .status(500)
-      .json({ success: false, error: err.message || "Server error" });
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ---------------------------------------------------
-// CODE EXTRACTOR
+// 2️⃣ CHATGPT STYLE CHATBOT
 // ---------------------------------------------------
-app.post("/extract-code", async (req, res) => {
+app.post("/chatbot", async (req, res) => {
   try {
-    const { input_text } = req.body;
+    const { message } = req.body;
 
-    if (!input_text) {
-      return res.status(400).json({ success: false, error: "No input provided" });
+    if (!message) {
+      return res.status(400).json({ success: false, error: "Message required" });
+    }
+
+    const ai = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [{ role: "user", content: message }],
+    });
+
+    const reply = ai.choices[0].message.content || "No reply";
+
+    return res.json({ success: true, reply });
+  } catch (err) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ---------------------------------------------------
+// 3️⃣ TEXT → CODE GENERATOR
+// ---------------------------------------------------
+app.post("/text-to-code", async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ success: false, error: "Text required" });
     }
 
     const ai = await openai.chat.completions.create({
@@ -88,28 +107,23 @@ app.post("/extract-code", async (req, res) => {
       messages: [
         {
           role: "system",
-          content: `
-Extract ONLY the code.
-If there is no code, return exactly: "No code found."
-`,
+          content:
+            "You are a professional CODE generator. Convert text instructions into real code. Output ONLY code.",
         },
-        { role: "user", content: input_text },
+        { role: "user", content: text },
       ],
     });
 
-    const extracted = ai.choices[0].message.content;
+    const code = ai.choices[0].message.content || "No code generated";
 
-    return res.json({
-      success: true,
-      extracted_code: extracted,
-    });
+    return res.json({ success: true, code });
   } catch (err) {
     return res.status(500).json({ success: false, error: err.message });
   }
 });
 
 // ---------------------------------------------------
-// SAVE CHAT
+// 4️⃣ SAVE CHAT HISTORY
 // ---------------------------------------------------
 app.post("/save-chat", async (req, res) => {
   try {
@@ -135,7 +149,7 @@ app.post("/save-chat", async (req, res) => {
 });
 
 // ---------------------------------------------------
-// SERVER LISTENER (Render Fix)
+// SERVER LISTENER (Render Deployment Safe)
 // ---------------------------------------------------
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`Backend running on port ${PORT}`));
